@@ -1,0 +1,100 @@
+formatVersion: 1
+inputs:
+  hostname:
+    type: string
+    title: Desired hostname
+    default: changeme
+  domain_admin_password:
+    type: string
+    title: Domain join password
+    default: VMware1!
+    writeOnly: true
+  domain_user:
+    type: string
+    title: Domain join username
+    default: ansibleuser@corp.local
+  domain_oupath:
+    type: string
+    title: Domain OU Path
+    default: 'ou=sample,dc=corp,dc=local'
+  domain_name:
+    type: string
+    title: Target domain to join
+    default: corp.local
+  new_user_name:
+    type: string
+    title: New user name
+    default: ansibleuser
+    description: The local username for anisble access
+  new_user_password:
+    type: string
+    title: New user password
+    default: VMware123!
+    writeOnly: true
+resources:
+  Cloud_AWS_EC2_Instance_1:
+    type: Cloud.AWS.EC2.Instance
+    metadata:
+      layoutPosition:
+        - 0
+        - 2
+    properties:
+      image: Resident Windows 2019 Ansible
+      flavor: t2.small
+      name: '${input.hostname}'
+      remoteAccess:
+        authentication: keyPairName
+        keyPair: id_rsa
+      cloudConfig: |
+        <powershell>
+        # Add new user for ansible access
+        $password = ConvertTo-SecureString ${input.new_user_password} -AsPlainText -Force
+        $newUser = New-LocalUser -Name "${input.new_user_name}" -Password $password -FullName "Ansible Remote User" -Description "Ansible remote user" 
+        Add-LocalGroupMember -Group "Administrators" -Member "${input.new_user_name}"    
+        $admin = [adsi]("WinNT://./administrator,user")
+        $admin.PSBase.Invoke("SetPassword", "VMware123!")
+        # Setup WinRM
+        Invoke-Expression ((New-Object System.Net.Webclient).DownloadString('https://raw.githubusercontent.com/kovarus/ansible-winrm-remote/master/ConfigureRemotingForAnsible.ps1'))
+        </powershell>
+      constraints:
+        - tag: 'cloud_type:public'
+      networks:
+        - network: '${resource.Cloud_Network_1.id}'
+          assignPublicIpAddress: false
+  Cloud_Network_1:
+    type: Cloud.Network
+    metadata:
+      layoutPosition:
+        - 1
+        - 0
+    properties:
+      networkType: existing
+      constraints:
+        - tag: 'network:aws_public_nat'
+  Cloud_Ansible_1:
+    type: Cloud.Ansible
+    metadata:
+      layoutPosition:
+        - 0
+        - 1
+    properties:
+      host: '${resource.Cloud_AWS_EC2_Instance_1.*}'
+      osType: windows
+      account: ansible-control-host
+      username: '${input.new_user_name}'
+      password: '${input.new_user_password}'
+      playbooks:
+        provision:
+          - /home/ansibleoss/playbooks/windows-join/windows-join.yml
+      groups:
+        - win
+      hostVariables:
+        domain_user: '${input.domain_user}'
+        domain_oupath: '${input.domain_oupath}'
+        domain_admin_password: '${input.domain_admin_password}'
+        domain_name: '${input.domain_name}'
+        hostname: '${input.hostname}'
+        ansible_winrm_server_cert_validation: ignore
+        ansible_port: 5986
+        ansible_user: '${input.new_user_name}'
+        ansible_password: '${input.new_user_password}'

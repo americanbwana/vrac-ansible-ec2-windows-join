@@ -1,0 +1,45 @@
+- hosts: win
+  gather_facts: no
+  tasks:
+
+  - name: Pause for OS
+    pause:
+      minutes: 5
+
+  - name: Change DNS to DC
+    win_dns_client:
+      adapter_names: '*'
+      ipv4_addresses:
+        - 10.10.0.100
+
+  - name: Rename machine
+    win_hostname:
+      name: "{{ hostname }}"
+    register: res
+
+  - name: Reboot if necessary
+    win_reboot:
+    when: res.reboot_required
+
+  - name: Wait for WinRM to be reachable
+    wait_for_connection:
+      timeout: 900
+
+  - name: Join to "{{ domain_name }}"
+    win_domain_membership:
+      hostname: "{{ hostname }}"
+      dns_domain_name: "{{ domain_name }}"
+      domain_admin_user: "{{ domain_user }}"
+      domain_admin_password: "{{ domain_admin_password }}"
+      domain_ou_path: "{{ domain_oupath }}"
+      state: domain
+    register: domain_state
+
+  - name: Wait for 2 minutes
+    pause:
+      minutes: 2
+
+  - name: reboot if necessary
+    win_reboot:
+      post_reboot_delay: 120
+    when: domain_state.reboot_required
